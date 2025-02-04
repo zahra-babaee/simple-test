@@ -7,57 +7,49 @@ use Carbon\Carbon;
 use App\Models\Otp;
 use App\Models\Newuser;
 use Illuminate\Support\Str;
-
+use App\Services\OtpService;
+use App\DTOs\UserDto\OtpDto;
 
 class OtpController extends Controller
 {
+    protected $otpService;
+    public function __construct(OtpService $otpService)
+    {
+        $this->otpService = $otpService;
+    }
     public function generate(Request $request)
     {
         $request->validate([
             'phone' => 'required|digits:10',
         ]);
-
         $phone = $request->phone;
-        $otp = Str::random(6); // یا mt_rand(100000, 999999) برای اعداد
 
-        // ذخیره در ردیس با زمان انقضا
-        Redis::set("otp:$phone", $otp, 'EX', 300); // انقضا ۵ دقیقه
+        $otpDto = new OtpDto($phone, null);
 
-        return response()->json([
-            'success' => true,
-            'otp' => $otp,
-        ]);
+        $result = $this->otpService->generateOtp($otpDto->phone);
+
+        return response()->json($result);
     }
-    
+   
     public function verify(Request $request)
     {
         $request->validate([
             'phone' => 'required|digits:10',
-            'otp' => 'required|string',
+            'otp' => 'required|digits:4',
         ]);
 
         $phone = $request->phone;
         $otp = $request->otp;
 
-        // بررسی کد در ردیس
-        $storedOtp = Redis::get("otp:$phone");
+        $otpDto = new OtpDto($phone, $otp);
 
-        if ($storedOtp && $storedOtp === $otp) {
-            // ثبت شماره در پایگاه داده
-            $user = Newuser::updateOrCreate(['phone' => $phone]);
+        $result = $this->otpService->verifyOtp($otpDto->phone, $otpDto->otp);
 
-            // حذف کد از ردیس
-            Redis::del("otp:$phone");
-
-            return response()->json([
-                'success' => true,
-                'message' => 'کاربر با موفقیت ثبت شد.',
+        if ($result['success']){
+            $user = NewUser::create([
+                'phone' => $otpDto->phone,
             ]);
         }
-
-        return response()->json([
-            'success' => false,
-            'message' => 'کد وارد شده اشتباه است.',
-        ]);
+        return response()->json($result);
     }
 }
